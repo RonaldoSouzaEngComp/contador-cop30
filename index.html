@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contador COP30 - V2</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0e0e0e;
+      color: #f5f5f5;
+      text-align: center;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      background: linear-gradient(90deg, #005f2f, #00964a);
+      padding: 15px;
+      font-size: 22px;
+      font-weight: bold;
+      color: white;
+      letter-spacing: 1px;
+      text-shadow: 0 0 8px #00ff80;
+    }
+    video, canvas {
+      width: 95%;
+      border-radius: 14px;
+      margin-top: 10px;
+      box-shadow: 0 0 10px rgba(0,255,128,0.2);
+    }
+    .painel {
+      margin: 15px auto;
+      background: #1b1b1b;
+      border-radius: 14px;
+      padding: 15px;
+      max-width: 400px;
+      box-shadow: 0 0 15px rgba(0,255,100,0.2);
+    }
+    .painel p {
+      font-size: 18px;
+      margin: 8px 0;
+    }
+    .painel span {
+      font-weight: bold;
+      color: #00ff80;
+    }
+    .botoes {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 10px;
+      gap: 10px;
+    }
+    button {
+      background: #00a85a;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 20px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #00d46b;
+    }
+    #status {
+      font-size: 14px;
+      color: #999;
+    }
+  </style>
+</head>
+<body>
+
+  <header>Contador COP30 - Versão 2</header>
+
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas" style="display:none;"></canvas>
+
+  <div class="painel">
+    <p>🚶‍♂️ <b>Entradas:</b> <span id="entradas">0</span></p>
+    <p>🚪 <b>Saídas:</b> <span id="saidas">0</span></p>
+    <p id="status">Status: Aguardando câmera...</p>
+    <div class="botoes">
+      <button onclick="startCamera()">Iniciar Câmera</button>
+      <button onclick="gerarRelatorio()">Gerar PDF</button>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <script>
+    let video, canvas, ctx;
+    let entradas = 0;
+    let saidas = 0;
+    let movimentos = [];
+    let lastFrame = null;
+    let lastX = 0;
+
+    async function startCamera() {
+      video = document.getElementById('video');
+      canvas = document.getElementById('canvas');
+      ctx = canvas.getContext('2d');
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        video.srcObject = stream;
+        document.getElementById('status').textContent = "Câmera ativa. Detectando movimentos...";
+        processarVideo();
+      } catch (err) {
+        alert("Erro ao acessar câmera: " + err.message);
+      }
+    }
+
+    function processarVideo() {
+      if (!video || video.readyState !== 4) {
+        requestAnimationFrame(processarVideo);
+        return;
+      }
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      if (lastFrame) {
+        let movimento = detectarMovimento(frame.data, lastFrame, canvas.width, canvas.height);
+        if (movimento) {
+          registrarMovimento(movimento);
+        }
+      }
+
+      lastFrame = frame.data;
+      requestAnimationFrame(processarVideo);
+    }
+
+    function detectarMovimento(data1, data2, width, height) {
+      let somaX = 0, somaDiff = 0, count = 0;
+
+      for (let i = 0; i < data1.length; i += 4) {
+        const diff = Math.abs(data1[i] - data2[i]) +
+                     Math.abs(data1[i + 1] - data2[i + 1]) +
+                     Math.abs(data1[i + 2] - data2[i + 2]);
+        if (diff > 50) {
+          const pixelIndex = i / 4;
+          const x = pixelIndex % width;
+          somaX += x;
+          somaDiff += diff;
+          count++;
+        }
+      }
+
+      if (count === 0) return null;
+      const mediaX = somaX / count;
+
+      const movimento = (lastX && Math.abs(mediaX - lastX) > 15);
+      let direcao = null;
+      if (movimento) {
+        direcao = (mediaX > lastX) ? "entrada" : "saída";
+      }
+
+      lastX = mediaX;
+      return direcao;
+    }
+
+    function registrarMovimento(tipo) {
+      if (!tipo) return;
+      const hora = new Date().toLocaleTimeString();
+      movimentos.push({ tipo, hora });
+
+      if (tipo === "entrada") {
+        entradas++;
+        document.getElementById('entradas').textContent = entradas;
+      } else {
+        saidas++;
+        document.getElementById('saidas').textContent = saidas;
+      }
+
+      document.getElementById('status').textContent = `Movimento detectado (${tipo}) às ${hora}`;
+    }
+
+    function gerarRelatorio() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      const data = new Date().toLocaleString("pt-BR");
+
+      doc.setFontSize(16);
+      doc.text("Relatório de Contagem - COP30 V2", 20, 20);
+      doc.setFontSize(12);
+      doc.text(`Data/Hora: ${data}`, 20, 30);
+      doc.text(`Entradas: ${entradas}`, 20, 40);
+      doc.text(`Saídas: ${saidas}`, 20, 50);
+
+      let y = 65;
+      movimentos.forEach(m => {
+        doc.text(`${m.hora} - ${m.tipo}`, 20, y);
+        y += 7;
+        if (y > 280) {
+          doc.addPage();
+          y = 20;
+        }
+      });
+
+      doc.save(`relatorio-cop30-v2-${Date.now()}.pdf`);
+    }
+  </script>
+</body>
+</html>
